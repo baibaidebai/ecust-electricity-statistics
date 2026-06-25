@@ -21,6 +21,7 @@ DEBUG = os.environ.get("DEBUG", os.environ.get("debug", "")).strip()
 URL = os.environ.get("URL", "").strip()
 PUSH_PLUS_TOKEN = os.environ.get("PUSH_PLUS_TOKEN", "").strip()
 GITHUB_TRIGGERING_ACTOR = os.environ.get("GITHUB_TRIGGERING_ACTOR", "").strip()
+SERVERCHAN_SENDKEY = os.environ.get("SERVERCHAN_SENDKEY", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 if s := os.environ.get("TELEGRAM_USER_IDS"):
     TELEGRAM_USER_IDS = [*s.strip().split()]
@@ -188,6 +189,30 @@ def telegram(text: str | None) -> None:
                 logging.error(response.text)
 
 
+def serverchan(text: str | None) -> None:
+    if not SERVERCHAN_SENDKEY:
+        logging.info("serverchan sendkey is empty, ignoring pushing...")
+        return
+
+    if not text:
+        return
+
+    with suppress():
+        if DEBUG:
+            print(text)
+        else:
+            response = requests.post(
+                f"https://sctapi.ftqq.com/{SERVERCHAN_SENDKEY}.send",
+                data={"title": f"{get_date()}华理电费统计", "desp": text},
+                timeout=20,
+            )
+            if response.status_code == 200:
+                logging.info("serverchan executed successfully")
+            else:
+                logging.error(f"serverchan failed with status code {response.status_code}")
+                logging.error(response.text)
+
+
 # main
 header = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
@@ -239,3 +264,4 @@ if not DEBUG:
 text = generate_message()
 pushplus(text)
 telegram(text)
+serverchan(text)
