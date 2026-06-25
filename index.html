@@ -1,29 +1,266 @@
 <!DOCTYPE html>
-<html>
-  <title>electricity statistics</title>
-  <body>
-    <div id="container"></div>
-    <script type="text/javascript" src="https://unpkg.com/@antv/g2plot@latest/dist/g2plot.min.js"></script>
-    <script src="./data.js"></script>
-    <script>
-      const { Line } = G2Plot;
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ECUST 宿舍电费统计</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a73e8, #0d47a1);
+      color: #fff;
+      padding: 24px 0 80px;
+      text-align: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header p { font-size: 14px; opacity: 0.85; margin-top: 6px; }
+    .container { max-width: 1200px; margin: -56px auto 40px; padding: 0 16px; }
 
-      const linePlot = new Line('container', {
-        data,
-        xField: 'time',
-        yField: 'kWh',
-        useDeferredLabel: true,
-        legend: {
-          position: 'top',
-        },
-        connectNulls : false,
-        slider: {
-          start: 0,
-          end: 1,
-        },
-      });
+    /* 指标卡片 */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      transition: transform 0.2s;
+    }
+    .card:hover { transform: translateY(-2px); }
+    .card .label { font-size: 13px; color: #888; margin-bottom: 8px; }
+    .card .value { font-size: 28px; font-weight: 700; }
+    .card .unit { font-size: 14px; font-weight: 400; color: #666; margin-left: 4px; }
+    .card .sub { font-size: 12px; color: #aaa; margin-top: 6px; }
+    .card.warn .value { color: #e53935; }
+    .card.ok .value { color: #43a047; }
+    .card.info .value { color: #1a73e8; }
 
-      linePlot.render();
-    </script>
-  </body>
+    /* 图表区域 */
+    .charts { display: grid; grid-template-columns: 1fr; gap: 24px; }
+    @media (min-width: 900px) { .charts { grid-template-columns: 1fr 1fr; } }
+    .chart-box {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .chart-box h3 { font-size: 15px; color: #555; margin-bottom: 12px; }
+    .chart-full { grid-column: 1 / -1; }
+
+    .footer { text-align: center; padding: 20px; color: #aaa; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>ECUST 宿舍电费统计</h1>
+    <p id="updateTime"></p>
+  </div>
+  <div class="container">
+    <div class="cards">
+      <div class="card" id="cardRemain">
+        <div class="label">当前剩余电量</div>
+        <div class="value" id="valRemain">--<span class="unit">kWh</span></div>
+        <div class="sub" id="subRemain"></div>
+      </div>
+      <div class="card" id="cardCost">
+        <div class="label">预估剩余电费</div>
+        <div class="value" id="valCost">--<span class="unit">元</span></div>
+        <div class="sub">按 0.617 元/kWh 估算</div>
+      </div>
+      <div class="card info" id="cardDaily">
+        <div class="label">昨日用电</div>
+        <div class="value" id="valDaily">--<span class="unit">kWh</span></div>
+        <div class="sub" id="subDaily"></div>
+      </div>
+      <div class="card" id="cardDays">
+        <div class="label">预计可用天数</div>
+        <div class="value" id="valDays">--<span class="unit">天</span></div>
+        <div class="sub" id="subDays"></div>
+      </div>
+    </div>
+    <div class="charts">
+      <div class="chart-box chart-full">
+        <h3>剩余电量与电费趋势</h3>
+        <div id="chartMain" style="height:360px;"></div>
+      </div>
+      <div class="chart-box">
+        <h3>每日用电量（近 30 天）</h3>
+        <div id="chartDaily" style="height:300px;"></div>
+      </div>
+      <div class="chart-box">
+        <h3>月度用电统计</h3>
+        <div id="chartMonthly" style="height:300px;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">数据来源：华东理工大学电费系统 · 每日自动更新</div>
+
+  <script src="./data.js"></script>
+  <script>
+    const PRICE = 0.617;
+    const WARN_THRESHOLD = 10;
+    const dailyData = data.map((d, i) => {
+      const usage = i > 0 ? +(data[i - 1].kWh - d.kWh).toFixed(1) : 0;
+      return { ...d, usage };
+    });
+
+    // --- 卡片 ---
+    const last = dailyData[dailyData.length - 1];
+    const prev = dailyData[dailyData.length - 2];
+    const remain = last.kWh;
+    const cost = (remain * PRICE).toFixed(2);
+    const usage = prev ? +(prev.kWh - last.kWh).toFixed(1) : 0;
+
+    document.getElementById('updateTime').textContent = '最近更新：' + last.time;
+    document.getElementById('valRemain').innerHTML = remain + '<span class="unit">kWh</span>';
+    document.getElementById('valCost').innerHTML = cost + '<span class="unit">元</span>';
+    document.getElementById('valDaily').innerHTML = (usage >= 0 ? usage : 0) + '<span class="unit">kWh</span>';
+
+    const cardRemain = document.getElementById('cardRemain');
+    if (remain < WARN_THRESHOLD) {
+      cardRemain.classList.add('warn');
+      document.getElementById('subRemain').textContent = '⚠ 低于警告阈值 ' + WARN_THRESHOLD + ' kWh';
+    } else {
+      cardRemain.classList.add('ok');
+      document.getElementById('subRemain').textContent = '状态正常';
+    }
+
+    if (usage > 0) {
+      document.getElementById('subDaily').textContent = '费用约 ' + (usage * PRICE).toFixed(2) + ' 元';
+    } else {
+      document.getElementById('subDaily').textContent = '';
+    }
+
+    // 计算近 7 天平均日用电
+    const recent7 = dailyData.slice(-8);
+    let avgDaily = 0;
+    for (let i = 1; i < recent7.length; i++) {
+      avgDaily += recent7[i - 1].kWh - recent7[i].kWh;
+    }
+    avgDaily = avgDaily / (recent7.length - 1);
+    const daysLeft = avgDaily > 0 ? Math.floor(remain / avgDaily) : '∞';
+    document.getElementById('valDays').innerHTML = daysLeft + '<span class="unit">天</span>';
+    document.getElementById('subDays').textContent = '基于近 7 天均耗 ' + avgDaily.toFixed(1) + ' kWh/天';
+    if (typeof daysLeft === 'number' && daysLeft < 7) {
+      document.getElementById('cardDays').classList.add('warn');
+    }
+
+    // --- 主图表：剩余电量与电费 ---
+    const times = dailyData.map(d => d.time);
+    const kWhs = dailyData.map(d => d.kWh);
+    const costs = dailyData.map(d => +(d.kWh * PRICE).toFixed(2));
+
+    const chartMain = echarts.init(document.getElementById('chartMain'));
+    chartMain.setOption({
+      tooltip: { trigger: 'axis',
+        formatter: function(params) {
+          let s = params[0].axisValue + '<br/>';
+          params.forEach(p => {
+            s += p.marker + ' ' + p.seriesName + ': <b>' + p.value + '</b>' + (p.seriesIndex === 0 ? ' kWh' : ' 元') + '<br/>';
+          });
+          return s;
+        }
+      },
+      legend: { data: ['剩余电量', '预估电费'], top: 0 },
+      grid: { left: 60, right: 60, bottom: 60, top: 40 },
+      dataZoom: [
+        { type: 'inside', start: 0, end: 100 },
+        { type: 'slider', start: 0, end: 100, height: 24, bottom: 8 }
+      ],
+      xAxis: { type: 'category', data: times, boundaryGap: false },
+      yAxis: [
+        { type: 'value', name: 'kWh', position: 'left' },
+        { type: 'value', name: '元', position: 'right' }
+      ],
+      series: [
+        {
+          name: '剩余电量', type: 'line', data: kWhs, smooth: true,
+          symbol: 'none', lineStyle: { width: 2 },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(26,115,232,0.35)' },
+            { offset: 1, color: 'rgba(26,115,232,0.02)' }
+          ])},
+          itemStyle: { color: '#1a73e8' },
+          markLine: {
+            silent: true,
+            data: [{ yAxis: WARN_THRESHOLD, lineStyle: { color: '#e53935', type: 'dashed' },
+              label: { formatter: '警告线 ' + WARN_THRESHOLD + 'kWh', color: '#e53935' }
+            }]
+          }
+        },
+        {
+          name: '预估电费', type: 'line', data: costs, smooth: true,
+          symbol: 'none', yAxisIndex: 1,
+          lineStyle: { width: 2, type: 'dashed' },
+          itemStyle: { color: '#fb8c00' }
+        }
+      ]
+    });
+
+    // --- 每日用电量（近 30 天）---
+    const recent30 = dailyData.slice(-30).filter(d => d.usage !== 0);
+    const chartDaily = echarts.init(document.getElementById('chartDaily'));
+    chartDaily.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: function(params) {
+          const p = params[0];
+          return p.axisValue + '<br/>' + p.marker + ' 用电: <b>' + p.value + '</b> kWh<br/>费用: <b>' + (p.value * PRICE).toFixed(2) + '</b> 元';
+        }
+      },
+      grid: { left: 50, right: 20, bottom: 30, top: 20 },
+      xAxis: { type: 'category', data: recent30.map(d => d.time.slice(5)) },
+      yAxis: { type: 'value', name: 'kWh' },
+      series: [{
+        type: 'bar', data: recent30.map(d => d.usage),
+        itemStyle: {
+          color: function(params) {
+            return params.value > 5 ? '#e53935' : params.value > 3 ? '#fb8c00' : '#43a047';
+          },
+          borderRadius: [4, 4, 0, 0]
+        }
+      }]
+    });
+
+    // --- 月度用电统计 ---
+    const monthlyMap = {};
+    for (let i = 1; i < dailyData.length; i++) {
+      const m = dailyData[i].time.slice(0, 7);
+      const u = dailyData[i - 1].kWh - dailyData[i].kWh;
+      if (u > 0) monthlyMap[m] = (monthlyMap[m] || 0) + u;
+    }
+    const monthLabels = Object.keys(monthlyMap).sort();
+    const monthValues = monthLabels.map(m => +monthlyMap[m].toFixed(1));
+    const chartMonthly = echarts.init(document.getElementById('chartMonthly'));
+    chartMonthly.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: function(params) {
+          const p = params[0];
+          return p.axisValue + '<br/>' + p.marker + ' 用电: <b>' + p.value + '</b> kWh<br/>费用: <b>' + (p.value * PRICE).toFixed(2) + '</b> 元';
+        }
+      },
+      grid: { left: 50, right: 20, bottom: 30, top: 20 },
+      xAxis: { type: 'category', data: monthLabels },
+      yAxis: { type: 'value', name: 'kWh' },
+      series: [{
+        type: 'bar', data: monthValues,
+        itemStyle: { color: '#1a73e8', borderRadius: [4, 4, 0, 0] }
+      }]
+    });
+
+    // 自适应
+    window.addEventListener('resize', function() {
+      chartMain.resize();
+      chartDaily.resize();
+      chartMonthly.resize();
+    });
+  </script>
+</body>
 </html>
