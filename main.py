@@ -230,6 +230,14 @@ def wechat_test_account() -> None:
     if not WECHAT_OPENIDS:
         logging.info("wechat openids is empty, ignoring pushing...")
         return
+    if not data:
+        return
+
+    remain = data[-1]["kWh"]
+    threshold = config.get("warning", 10)
+    if remain >= threshold:
+        logging.info(f"wechat: sufficient electricity ({remain}kWh >= {threshold}), ignoring pushing...")
+        return
 
     # 获取 access_token
     with suppress():
