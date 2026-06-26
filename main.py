@@ -22,6 +22,13 @@ URL = os.environ.get("URL", "").strip()
 PUSH_PLUS_TOKEN = os.environ.get("PUSH_PLUS_TOKEN", "").strip()
 GITHUB_TRIGGERING_ACTOR = os.environ.get("GITHUB_TRIGGERING_ACTOR", "").strip()
 SERVERCHAN_SENDKEY = os.environ.get("SERVERCHAN_SENDKEY", "").strip()
+WECHAT_APPID = os.environ.get("WECHAT_APPID", "").strip()
+WECHAT_APPSECRET = os.environ.get("WECHAT_APPSECRET", "").strip()
+WECHAT_TEMPLATE_ID = os.environ.get("WECHAT_TEMPLATE_ID", "").strip()
+if s := os.environ.get("WECHAT_OPENIDS"):
+    WECHAT_OPENIDS = [*s.strip().split()]
+else:
+    WECHAT_OPENIDS = []
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 if s := os.environ.get("TELEGRAM_USER_IDS"):
     TELEGRAM_USER_IDS = [*s.strip().split()]
@@ -213,6 +220,76 @@ def serverchan(text: str | None) -> None:
                 logging.error(response.text)
 
 
+def wechat_test_account() -> None:
+    if not WECHAT_APPID or not WECHAT_APPSECRET:
+        logging.info("wechat appid/appsecret is empty, ignoring pushing...")
+        return
+    if not WECHAT_TEMPLATE_ID:
+        logging.info("wechat template id is empty, ignoring pushing...")
+        return
+    if not WECHAT_OPENIDS:
+        logging.info("wechat openids is empty, ignoring pushing...")
+        return
+
+    # 获取 access_token
+    with suppress():
+        resp = requests.get(
+            "https://api.weixin.qq.com/cgi-bin/token",
+            params={
+                "grant_type": "client_credential",
+                "appid": WECHAT_APPID,
+                "secret": WECHAT_APPSECRET,
+            },
+            timeout=10,
+        )
+        token_data = resp.json()
+        if "access_token" not in token_data:
+            logging.error(f"failed to get access_token: {token_data}")
+            return
+        access_token = token_data["access_token"]
+
+        # 计算数据
+        last = data[-1]
+        remain = last["kWh"]
+        cost = f"{remain * 0.606:.1f}元"
+
+        # 近7天平均日用电
+        recent = data[-8:]
+        avg = sum(recent[i - 1]["kWh"] - recent[i]["kWh"] for i in range(1, len(recent))) / (len(recent) - 1)
+        days_left = f"{int(remain / avg)}天" if avg > 0 else "∞"
+
+        # 昨日用电
+        if len(data) >= 2:
+            usage = data[-2]["kWh"] - data[-1]["kWh"]
+            daily_usage = f"{max(usage, 0):.1f}kWh"
+        else:
+            daily_usage = "暂无数据"
+
+        # 发送模板消息
+        for openid in WECHAT_OPENIDS:
+            if not openid:
+                continue
+            resp = requests.post(
+                f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}",
+                json={
+                    "touser": openid,
+                    "template_id": WECHAT_TEMPLATE_ID,
+                    "data": {
+                        "keyword1": {"value": f"{remain}kWh"},
+                        "keyword2": {"value": cost},
+                        "keyword3": {"value": daily_usage},
+                        "keyword4": {"value": days_left},
+                    },
+                },
+                timeout=10,
+            )
+            result = resp.json()
+            if result.get("errcode") == 0:
+                logging.info(f"wechat template sent to {openid} successfully")
+            else:
+                logging.error(f"wechat template failed: {result}")
+
+
 # main
 header = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
@@ -265,3 +342,4 @@ text = generate_message()
 pushplus(text)
 telegram(text)
 serverchan(text)
+wechat_test_account()
