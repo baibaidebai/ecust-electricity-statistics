@@ -71,7 +71,7 @@
       <div class="card" id="cardCost">
         <div class="label">预估剩余电费</div>
         <div class="value" id="valCost">--<span class="unit">元</span></div>
-        <div class="sub">按 0.617 元/kWh 估算</div>
+        <div class="sub">按 0.606 元/kWh 估算</div>
       </div>
       <div class="card info" id="cardDaily">
         <div class="label">昨日用电</div>
@@ -103,7 +103,7 @@
 
   <script src="./data.js"></script>
   <script>
-    const PRICE = 0.617;
+    const PRICE = 0.606;
     const WARN_THRESHOLD = 10;
     const dailyData = data.map((d, i) => {
       const usage = i > 0 ? +(data[i - 1].kWh - d.kWh).toFixed(1) : 0;
