@@ -35,6 +35,8 @@ if s := os.environ.get("TELEGRAM_USER_IDS"):
 else:
     TELEGRAM_USER_IDS = []
 
+FETCH_INTERVAL_HOURS = 4  # 每次抓取间隔（小时），用于判断是否追加新记录
+
 
 config = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +58,10 @@ def once(func: Callable[..., Any]) -> Callable[..., Any]:
 @once
 def get_date() -> str:
     return datetime.datetime.now().strftime("%Y-%m-%d")
+
+
+def get_datetime() -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
 # 你理的 buildid 真是太棒了
@@ -335,10 +341,17 @@ except json.decoder.JSONDecodeError:
     exit(1)
 
 # add new data
-if data and (get_date() in data[-1].values()):
-    data[-1]["kWh"] = remain
+now = datetime.datetime.now()
+if data:
+    last_time = datetime.datetime.strptime(data[-1]["time"], "%Y-%m-%d %H:%M" if " " in data[-1]["time"] else "%Y-%m-%d")
+    hours_diff = (now - last_time).total_seconds() / 3600
+    if hours_diff < FETCH_INTERVAL_HOURS:
+        data[-1]["kWh"] = remain
+        data[-1]["time"] = get_datetime()
+    else:
+        data.append({"time": get_datetime(), "kWh": remain})
 else:
-    data.append({"time": get_date(), "kWh": remain})
+    data.append({"time": get_datetime(), "kWh": remain})
 
 # write back to data.js
 if not DEBUG:

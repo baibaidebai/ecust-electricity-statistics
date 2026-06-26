@@ -94,17 +94,29 @@
         <div id="chartDaily" style="height:300px;"></div>
       </div>
       <div class="chart-box">
+        <h3>用电时段分析（近 7 天）</h3>
+        <div id="chartPeriod" style="height:300px;"></div>
+      </div>
+      <div class="chart-box chart-full">
         <h3>月度用电统计</h3>
         <div id="chartMonthly" style="height:300px;"></div>
       </div>
     </div>
   </div>
-  <div class="footer">数据来源：华东理工大学电费系统 · 每日自动更新</div>
+  <div class="footer">数据来源：华东理工大学电费系统 · 每 4 小时自动更新</div>
 
   <script src="./data.js"></script>
   <script>
     const PRICE = 0.606;
     const WARN_THRESHOLD = 10;
+
+    // 解析时间，兼容 "2026-06-26" 和 "2026-06-26 08:30" 两种格式
+    function parseTime(t) {
+      return new Date(t.replace(' ', 'T'));
+    }
+    function toDate(t) { return t.split(' ')[0]; }
+    function toHour(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[0]) : null; }
+
     const dailyData = data.map((d, i) => {
       const usage = i > 0 ? +(data[i - 1].kWh - d.kWh).toFixed(1) : 0;
       return { ...d, usage };
@@ -137,13 +149,20 @@
       document.getElementById('subDaily').textContent = '';
     }
 
-    // 计算近 7 天平均日用电
-    const recent7 = dailyData.slice(-8);
+    // 计算近 7 天平均日用电（按日期分组）
+    const dateMap = {};
+    dailyData.forEach(d => {
+      const dt = toDate(d.time);
+      if (!dateMap[dt]) dateMap[dt] = d.kWh;
+      else dateMap[dt] = Math.min(dateMap[dt], d.kWh);
+    });
+    const dateEntries = Object.entries(dateMap).sort((a, b) => a[0].localeCompare(b[0]));
     let avgDaily = 0;
-    for (let i = 1; i < recent7.length; i++) {
-      avgDaily += recent7[i - 1].kWh - recent7[i].kWh;
+    const recent7dates = dateEntries.slice(-8);
+    for (let i = 1; i < recent7dates.length; i++) {
+      avgDaily += recent7dates[i - 1][1] - recent7dates[i][1];
     }
-    avgDaily = avgDaily / (recent7.length - 1);
+    avgDaily = avgDaily / (recent7dates.length - 1);
     const daysLeft = avgDaily > 0 ? Math.floor(remain / avgDaily) : '∞';
     document.getElementById('valDays').innerHTML = daysLeft + '<span class="unit">天</span>';
     document.getElementById('subDays').textContent = '基于近 7 天均耗 ' + avgDaily.toFixed(1) + ' kWh/天';
@@ -203,8 +222,13 @@
       ]
     });
 
-    // --- 每日用电量（近 30 天）---
-    const recent30 = dailyData.slice(-30).filter(d => d.usage !== 0);
+    // --- 每日用电量（按日期分组，近 30 天）---
+    const dailyUsage = [];
+    for (let i = 1; i < dateEntries.length; i++) {
+      const u = +(dateEntries[i - 1][1] - dateEntries[i][1]).toFixed(1);
+      if (u > 0) dailyUsage.push({ date: dateEntries[i][0], usage: u });
+    }
+    const recent30 = dailyUsage.slice(-30);
     const chartDaily = echarts.init(document.getElementById('chartDaily'));
     chartDaily.setOption({
       tooltip: {
@@ -215,7 +239,7 @@
         }
       },
       grid: { left: 50, right: 20, bottom: 30, top: 20 },
-      xAxis: { type: 'category', data: recent30.map(d => d.time.slice(5)) },
+      xAxis: { type: 'category', data: recent30.map(d => d.date.slice(5)) },
       yAxis: { type: 'value', name: 'kWh' },
       series: [{
         type: 'bar', data: recent30.map(d => d.usage),
@@ -228,11 +252,47 @@
       }]
     });
 
+    // --- 用电时段分析（近 7 天）---
+    const periodSlots = ['凌晨 0-6', '上午 6-12', '下午 12-18', '晚上 18-24'];
+    const periodUsage = [0, 0, 0, 0];
+    const recent7 = data.slice(-20);
+    for (let i = 1; i < recent7.length; i++) {
+      const h = toHour(recent7[i].time);
+      if (h === null) continue;
+      const u = recent7[i - 1].kWh - recent7[i].kWh;
+      if (u <= 0) continue;
+      if (h < 6) periodUsage[0] += u;
+      else if (h < 12) periodUsage[1] += u;
+      else if (h < 18) periodUsage[2] += u;
+      else periodUsage[3] += u;
+    }
+    const chartPeriod = echarts.init(document.getElementById('chartPeriod'));
+    chartPeriod.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: function(params) {
+          const p = params[0];
+          return p.axisValue + '<br/>' + p.marker + ' 用电: <b>' + p.value.toFixed(1) + '</b> kWh<br/>费用: <b>' + (p.value * PRICE).toFixed(2) + '</b> 元';
+        }
+      },
+      grid: { left: 80, right: 20, bottom: 30, top: 20 },
+      xAxis: { type: 'value', name: 'kWh' },
+      yAxis: { type: 'category', data: periodSlots },
+      series: [{
+        type: 'bar',
+        data: periodUsage.map((v, i) => ({
+          value: +v.toFixed(1),
+          itemStyle: { color: ['#5c6bc0', '#26a69a', '#ffa726', '#ef5350'][i] }
+        })),
+        label: { show: true, position: 'right', formatter: '{c} kWh' }
+      }]
+    });
+
     // --- 月度用电统计 ---
     const monthlyMap = {};
-    for (let i = 1; i < dailyData.length; i++) {
-      const m = dailyData[i].time.slice(0, 7);
-      const u = dailyData[i - 1].kWh - dailyData[i].kWh;
+    for (let i = 1; i < dateEntries.length; i++) {
+      const m = dateEntries[i][0].slice(0, 7);
+      const u = dateEntries[i - 1][1] - dateEntries[i][1];
       if (u > 0) monthlyMap[m] = (monthlyMap[m] || 0) + u;
     }
     const monthLabels = Object.keys(monthlyMap).sort();
@@ -259,6 +319,7 @@
     window.addEventListener('resize', function() {
       chartMain.resize();
       chartDaily.resize();
+      chartPeriod.resize();
       chartMonthly.resize();
     });
   </script>
