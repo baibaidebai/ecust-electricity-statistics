@@ -61,7 +61,7 @@ def get_date() -> str:
 
 
 def get_datetime() -> str:
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    return (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
 
 
 # 你理的 buildid 真是太棒了
@@ -341,10 +341,11 @@ except json.decoder.JSONDecodeError:
     exit(1)
 
 # add new data
-now = datetime.datetime.now()
+now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
+now_naive = now.replace(tzinfo=None)
 if data:
     last_time = datetime.datetime.strptime(data[-1]["time"], "%Y-%m-%d %H:%M" if " " in data[-1]["time"] else "%Y-%m-%d")
-    hours_diff = (now - last_time).total_seconds() / 3600
+    hours_diff = (now_naive - last_time).total_seconds() / 3600
     if hours_diff < FETCH_INTERVAL_HOURS:
         data[-1]["kWh"] = remain
         data[-1]["time"] = get_datetime()
