@@ -110,8 +110,22 @@
     const PRICE = 0.606;
     const WARN_THRESHOLD = 10;
 
-    function toDate(t) { return t.split(' ')[0]; }
     function toHour(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[0]) : null; }
+    function toMinute(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[1]) : 0; }
+
+    // 按 05:30 分界统计一天：05:30 之前算前一天
+    function toDate(t) {
+      const parts = t.split(' ');
+      const d = new Date(parts[0] + 'T00:00');
+      if (parts[1]) {
+        const h = parseInt(parts[1].split(':')[0]);
+        const m = parseInt(parts[1].split(':')[1]);
+        if (h < 5 || (h === 5 && m < 30)) {
+          d.setDate(d.getDate() - 1);
+        }
+      }
+      return d.toISOString().slice(0, 10);
+    }
 
     const dailyData = data.map((d, i) => {
       const usage = i > 0 ? +(data[i - 1].kWh - d.kWh).toFixed(1) : 0;
