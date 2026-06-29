@@ -113,16 +113,15 @@
     function toHour(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[0]) : null; }
     function toMinute(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[1]) : 0; }
 
-    // 按 05:30 分界统计一天：05:30 之前算前一天
+    // 按 05:30 分界统计一天：有时间且在 05:30 之前算前一天，无时间的旧数据保持原日期
     function toDate(t) {
       const parts = t.split(' ');
+      if (!parts[1]) return parts[0]; // 无时间的旧数据保持原日期
       const d = new Date(parts[0] + 'T00:00');
-      if (parts[1]) {
-        const h = parseInt(parts[1].split(':')[0]);
-        const m = parseInt(parts[1].split(':')[1]);
-        if (h < 5 || (h === 5 && m < 30)) {
-          d.setDate(d.getDate() - 1);
-        }
+      const h = parseInt(parts[1].split(':')[0]);
+      const m = parseInt(parts[1].split(':')[1]);
+      if (h < 5 || (h === 5 && m < 30)) {
+        d.setDate(d.getDate() - 1);
       }
       return d.toISOString().slice(0, 10);
     }
@@ -132,12 +131,24 @@
       return { ...d, usage };
     });
 
+    // 按 05:30 分界按日期分组，取每天最小值
+    const dateMap = {};
+    for (const d of data) {
+      const dt = toDate(d.time);
+      if (!(dt in dateMap) || d.kWh < dateMap[dt]) dateMap[dt] = d.kWh;
+    }
+    const dateEntries = Object.entries(dateMap).sort((a, b) => a[0].localeCompare(b[0]));
+
     // --- 卡片 ---
     const last = dailyData[dailyData.length - 1];
-    const prev = dailyData[dailyData.length - 2];
     const remain = last.kWh;
     const cost = (remain * PRICE).toFixed(2);
-    const usage = prev ? +(prev.kWh - last.kWh).toFixed(1) : 0;
+
+    // 昨日用电（按日期分组，取最后两个完整日的差值）
+    let usage = 0;
+    if (dateEntries.length >= 2) {
+      usage = +(dateEntries[dateEntries.length - 2][1] - dateEntries[dateEntries.length - 1][1]).toFixed(1);
+    }
 
     document.getElementById('updateTime').textContent = '最近更新：' + last.time;
     document.getElementById('valRemain').innerHTML = remain + '<span class="unit">kWh</span>';
@@ -159,15 +170,9 @@
       document.getElementById('subDaily').textContent = '';
     }
 
-    // 近 7 天平均日用电（按日期分组取每天最小值）
-    const dateMap = {};
-    for (const d of data) {
-      const dt = toDate(d.time);
-      if (!(dt in dateMap) || d.kWh < dateMap[dt]) dateMap[dt] = d.kWh;
-    }
-    const dateEntries = Object.entries(dateMap).sort((a, b) => a[0].localeCompare(b[0]));
-    let avgDaily = 0;
+    // 近 7 天平均日用电
     const recent7dates = dateEntries.slice(-8);
+    let avgDaily = 0;
     for (let i = 1; i < recent7dates.length; i++) {
       avgDaily += recent7dates[i - 1][1] - recent7dates[i][1];
     }
