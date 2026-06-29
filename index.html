@@ -94,7 +94,7 @@
         <div id="chartDaily" style="height:300px;"></div>
       </div>
       <div class="chart-box">
-        <h3>用电时段分析（近 7 天）</h3>
+        <h3>用电时段分析（平均速率）</h3>
         <div id="chartPeriod" style="height:300px;"></div>
       </div>
       <div class="chart-box chart-full">
@@ -247,23 +247,30 @@
       }]
     });
 
-    // --- 用电时段分析（每次读数间的用电量归到前一个读数的时段）---
+    // --- 用电时段分析（计算每个时段的平均用电速率 kWh/h）---
+    function parseDatetime(t) {
+      return new Date(t.replace(' ', 'T') + (t.includes(':') ? '' : 'T00:00'));
+    }
     const periodSlots = ['凌晨 0-6', '上午 6-12', '下午 12-18', '晚上 18-24'];
-    const periodUsage = [0, 0, 0, 0];
+    const periodRateSum = [0, 0, 0, 0];
     const periodCount = [0, 0, 0, 0];
     for (let i = 1; i < data.length; i++) {
       const h = toHour(data[i - 1].time);
       if (h === null) continue;
       const u = data[i - 1].kWh - data[i].kWh;
       if (u <= 0) continue;
+      const hours = (parseDatetime(data[i].time) - parseDatetime(data[i - 1].time)) / 3600000;
+      if (hours <= 0) continue;
+      const rate = u / hours; // kWh per hour
       let slot;
       if (h < 6) slot = 0;
       else if (h < 12) slot = 1;
       else if (h < 18) slot = 2;
       else slot = 3;
-      periodUsage[slot] += u;
+      periodRateSum[slot] += rate;
       periodCount[slot]++;
     }
+    const periodAvgRate = periodRateSum.map((sum, i) => periodCount[i] > 0 ? +(sum / periodCount[i]).toFixed(3) : 0);
     const chartPeriod = echarts.init(document.getElementById('chartPeriod'));
     chartPeriod.setOption({
       tooltip: {
@@ -271,22 +278,19 @@
         formatter: function(params) {
           const p = params[0];
           const idx = p.dataIndex;
-          const avg = periodCount[idx] > 0 ? (p.value / periodCount[idx]).toFixed(1) : 0;
-          return p.axisValue + '<br/>' + p.marker + ' 总用电: <b>' + p.value.toFixed(1) + '</b> kWh<br/>采样次数: <b>' + periodCount[idx] + '</b><br/>次均: <b>' + avg + '</b> kWh';
+          return p.axisValue + '<br/>' + p.marker + ' 平均用电速率: <b>' + p.value + '</b> kWh/h<br/>采样次数: <b>' + periodCount[idx] + '</b>';
         }
       },
-      grid: { left: 80, right: 40, bottom: 30, top: 20 },
-      xAxis: { type: 'value', name: 'kWh' },
+      grid: { left: 80, right: 60, bottom: 30, top: 20 },
+      xAxis: { type: 'value', name: 'kWh/h' },
       yAxis: { type: 'category', data: periodSlots },
       series: [{
         type: 'bar',
-        data: periodUsage.map((v, i) => ({
-          value: +v.toFixed(1),
+        data: periodAvgRate.map((v, i) => ({
+          value: v,
           itemStyle: { color: ['#5c6bc0', '#26a69a', '#ffa726', '#ef5350'][i] }
         })),
-        label: { show: true, position: 'right', formatter: function(p) {
-          return p.value.toFixed(1) + ' kWh';
-        }}
+        label: { show: true, position: 'right', formatter: '{c} kWh/h' }
       }]
     });
 

@@ -340,13 +340,16 @@ except json.decoder.JSONDecodeError:
     logging.error("data.js 格式错误，请参考注意事项进行检查")
     exit(1)
 
-# add new data
+# add new data — 只有电量变化时才记录
 now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
 now_naive = now.replace(tzinfo=None)
 if data:
+    last_kWh = data[-1]["kWh"]
     last_time = datetime.datetime.strptime(data[-1]["time"], "%Y-%m-%d %H:%M" if " " in data[-1]["time"] else "%Y-%m-%d")
     hours_diff = (now_naive - last_time).total_seconds() / 3600
-    if hours_diff < FETCH_INTERVAL_HOURS:
+    if remain == last_kWh:
+        logging.info(f"电量未变化({remain}kWh)，跳过记录")
+    elif hours_diff < FETCH_INTERVAL_HOURS:
         data[-1]["kWh"] = remain
         data[-1]["time"] = get_datetime()
     else:
