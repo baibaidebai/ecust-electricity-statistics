@@ -265,7 +265,7 @@ def wechat_test_account() -> None:
         # 计算数据
         last = data[-1]
         remain = last["kWh"]
-        cost = f"{remain * 0.606:.1f}元"
+        cost = f"{remain * 0.617:.1f}元"
 
         # 近7天平均日用电
         recent = data[-8:]
