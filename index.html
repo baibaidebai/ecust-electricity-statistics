@@ -113,6 +113,18 @@
       margin-top: 8px;
       display: none;
     }
+    .github-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .github-row input[type=password] {
+      flex: 1; min-width: 200px;
+      padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 13px; font-family: monospace;
+    }
+    .status { font-size: 12px; padding: 4px 8px; border-radius: 4px; display: inline-block; }
+    .status.ok { background: #e8f5e9; color: #2e7d32; }
+    .status.err { background: #ffebee; color: #c62828; }
+    .status.loading { background: #e3f2fd; color: #1565c0; }
+    .help-link { color: #1a73e8; font-size: 12px; text-decoration: none; }
+    .help-link:hover { text-decoration: underline; }
 
     .footer { text-align: center; padding: 20px; color: #aaa; font-size: 12px; }
   </style>
@@ -163,9 +175,14 @@
           <input type="number" id="rechargeAmount" min="1" step="1" placeholder="例如：100" required>
         </div>
         <button class="btn" id="btnAddRecharge">添加充值</button>
-        <button class="btn btn-secondary" id="btnExport">导出 JSON</button>
+        <button class="btn" id="btnSaveGithub">💾 保存到 GitHub</button>
+        <button class="btn btn-secondary" id="btnExport">📋 仅复制 JSON</button>
       </div>
       <div class="recharge-list" id="rechargeList"></div>
+      <div style="margin-top:8px;font-size:12px;color:#888;">
+        点击"保存到 GitHub"会跳转到 GitHub 编辑页面（由 GitHub 自己处理登录），无需 token。需要仓库写权限。
+      </div>
+      <span id="ghStatus"></span>
       <textarea class="export-box" id="exportBox" readonly></textarea>
     </div>
 
@@ -354,6 +371,18 @@
         document.execCommand('copy');
         alert('JSON 已复制到剪贴板，请粘贴到 recharges.js 文件提交');
       } catch (e) {}
+    };
+
+    // 跳转到 GitHub 编辑页面（带预填内容）
+    document.getElementById('btnSaveGithub').onclick = function() {
+      // 从当前页面 URL 推断 owner/repo（GitHub Pages 路径格式：/ecust-electricity-statistics/）
+      const pathParts = location.pathname.split('/').filter(p => p);
+      const repo = pathParts[0] || 'ecust-electricity-statistics';
+      const repoUrl = 'https://github.com/' + (location.hostname.includes('github.io') ? location.hostname.split('.')[0] : 'baibaidebai') + '/' + repo;
+      const content = 'recharges=' + JSON.stringify(recharges, null, 2);
+      const editUrl = repoUrl + '/edit/main/recharges.js?value=' + encodeURIComponent(content) + '&message=更新充值记录';
+      window.open(editUrl, '_blank');
+      document.getElementById('ghStatus').innerHTML = '<span class="status loading">已打开 GitHub 编辑页面，请在 GitHub 上点击 "Commit changes" 完成保存</span>';
     };
 
     renderRechargeList();
