@@ -23,7 +23,6 @@
     .header p { font-size: 14px; opacity: 0.85; margin-top: 6px; }
     .container { max-width: 1200px; margin: -56px auto 40px; padding: 0 16px; }
 
-    /* 指标卡片 */
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
     .card {
       background: #fff;
@@ -41,7 +40,6 @@
     .card.ok .value { color: #43a047; }
     .card.info .value { color: #1a73e8; }
 
-    /* 图表区域 */
     .charts { display: grid; grid-template-columns: 1fr; gap: 24px; }
     @media (min-width: 900px) { .charts { grid-template-columns: 1fr 1fr; } }
     .chart-box {
@@ -52,6 +50,69 @@
     }
     .chart-box h3 { font-size: 15px; color: #555; margin-bottom: 12px; }
     .chart-full { grid-column: 1 / -1; }
+
+    /* 充值记录区域 */
+    .recharge-panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+    }
+    .recharge-panel h3 { font-size: 15px; color: #555; margin-bottom: 12px; }
+    .recharge-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 12px; color: #888; }
+    .form-group input, .form-group select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: #1a73e8; }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #1a73e8;
+      color: #fff;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #155ab6; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-danger { background: #e53935; }
+    .btn-danger:hover { background: #c62828; }
+    .btn-secondary { background: #888; }
+    .btn-secondary:hover { background: #666; }
+
+    .recharge-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .recharge-tag {
+      background: #fff3e0;
+      border: 1px solid #ffb74d;
+      color: #e65100;
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .recharge-tag .del { cursor: pointer; color: #c62828; font-weight: bold; }
+    .recharge-summary { font-size: 13px; color: #555; padding: 8px 0; }
+    .export-box {
+      width: 100%;
+      min-height: 80px;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
 
     .footer { text-align: center; padding: 20px; color: #aaa; font-size: 12px; }
   </style>
@@ -83,7 +144,31 @@
         <div class="value" id="valDays">--<span class="unit">天</span></div>
         <div class="sub" id="subDays"></div>
       </div>
+      <div class="card" id="cardRechargeSum">
+        <div class="label">累计充值</div>
+        <div class="value" id="valRechargeSum">0<span class="unit">元</span></div>
+        <div class="sub" id="subRechargeSum">充入约 0 kWh</div>
+      </div>
     </div>
+
+    <div class="recharge-panel">
+      <h3>充值记录</h3>
+      <div class="recharge-form">
+        <div class="form-group">
+          <label>充值日期</label>
+          <input type="date" id="rechargeDate" required>
+        </div>
+        <div class="form-group">
+          <label>金额（元）</label>
+          <input type="number" id="rechargeAmount" min="1" step="1" placeholder="例如：100" required>
+        </div>
+        <button class="btn" id="btnAddRecharge">添加充值</button>
+        <button class="btn btn-secondary" id="btnExport">导出 JSON</button>
+      </div>
+      <div class="recharge-list" id="rechargeList"></div>
+      <textarea class="export-box" id="exportBox" readonly></textarea>
+    </div>
+
     <div class="charts">
       <div class="chart-box chart-full">
         <h3>剩余电量与电费趋势</h3>
@@ -106,17 +191,44 @@
   <div class="footer">数据来源：华东理工大学电费系统 · 每 4 小时自动更新</div>
 
   <script src="./data.js"></script>
+  <script src="./recharges.js"></script>
   <script>
     const PRICE = 0.617;
     const WARN_THRESHOLD = 10;
+    const RECHARGE_STORAGE_KEY = 'ecust_recharges_v1';
+
+    // 合并本地存储和 recharges.js 的数据（本地优先，去重）
+    function loadRecharges() {
+      let stored = [];
+      try { stored = JSON.parse(localStorage.getItem(RECHARGE_STORAGE_KEY) || '[]'); } catch (e) {}
+      // 文件中的数据作为初始数据（首次部署时已有记录）
+      const fromFile = (typeof recharges !== 'undefined' && Array.isArray(recharges)) ? recharges : [];
+      // 合并：本地优先
+      const seen = new Set();
+      const merged = [];
+      for (const r of stored) {
+        const k = r.time + '|' + r.yuan;
+        if (!seen.has(k)) { seen.add(k); merged.push(r); }
+      }
+      for (const r of fromFile) {
+        const k = r.time + '|' + r.yuan;
+        if (!seen.has(k)) { seen.add(k); merged.push(r); }
+      }
+      return merged.sort((a, b) => a.time.localeCompare(b.time));
+    }
+
+    function saveRecharges(list) {
+      localStorage.setItem(RECHARGE_STORAGE_KEY, JSON.stringify(list));
+    }
+
+    let recharges = loadRecharges();
 
     function toHour(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[0]) : null; }
     function toMinute(t) { return t.includes(' ') ? parseInt(t.split(' ')[1].split(':')[1]) : 0; }
 
-    // 按 05:30 分界统计一天：有时间且在 05:30 之前算前一天，无时间的旧数据保持原日期
     function toDate(t) {
       const parts = t.split(' ');
-      if (!parts[1]) return parts[0]; // 无时间的旧数据保持原日期
+      if (!parts[1]) return parts[0];
       const d = new Date(parts[0] + 'T00:00');
       const h = parseInt(parts[1].split(':')[0]);
       const m = parseInt(parts[1].split(':')[1]);
@@ -131,7 +243,6 @@
       return { ...d, usage };
     });
 
-    // 按 05:30 分界按日期分组，取每天最小值
     const dateMap = {};
     for (const d of data) {
       const dt = toDate(d.time);
@@ -139,12 +250,10 @@
     }
     const dateEntries = Object.entries(dateMap).sort((a, b) => a[0].localeCompare(b[0]));
 
-    // --- 卡片 ---
     const last = dailyData[dailyData.length - 1];
     const remain = last.kWh;
     const cost = (remain * PRICE).toFixed(2);
 
-    // 昨日用电（按日期分组，取最后两个完整日的差值）
     let usage = 0;
     if (dateEntries.length >= 2) {
       usage = +(dateEntries[dateEntries.length - 2][1] - dateEntries[dateEntries.length - 1][1]).toFixed(1);
@@ -170,7 +279,6 @@
       document.getElementById('subDaily').textContent = '';
     }
 
-    // 近 7 天平均日用电
     const recent7dates = dateEntries.slice(-8);
     let avgDaily = 0;
     for (let i = 1; i < recent7dates.length; i++) {
@@ -184,10 +292,82 @@
       document.getElementById('cardDays').classList.add('warn');
     }
 
-    // --- 主图表：剩余电量与电费 ---
+    // --- 充值统计卡片 ---
+    const totalYuan = recharges.reduce((s, r) => s + Number(r.yuan), 0);
+    const totalKWh = totalYuan / PRICE;
+    document.getElementById('valRechargeSum').innerHTML = totalYuan.toFixed(0) + '<span class="unit">元</span>';
+    document.getElementById('subRechargeSum').textContent = '共 ' + recharges.length + ' 次，约 ' + totalKWh.toFixed(0) + ' 度';
+
+    // --- 充值列表 UI ---
+    function renderRechargeList() {
+      const list = document.getElementById('rechargeList');
+      if (recharges.length === 0) {
+        list.innerHTML = '<div style="color:#999;font-size:13px;">暂无充值记录</div>';
+        return;
+      }
+      list.innerHTML = recharges.map((r, idx) =>
+        `<div class="recharge-tag">${r.time} · ¥${r.yuan}<span class="del" data-idx="${idx}" title="删除">×</span></div>`
+      ).join('');
+      list.querySelectorAll('.del').forEach(el => {
+        el.onclick = function() {
+          const idx = parseInt(this.getAttribute('data-idx'));
+          recharges.splice(idx, 1);
+          saveRecharges(recharges);
+          renderRechargeList();
+          updateSummary();
+        };
+      });
+    }
+
+    function updateSummary() {
+      const totalYuan = recharges.reduce((s, r) => s + Number(r.yuan), 0);
+      const totalKWh = totalYuan / PRICE;
+      document.getElementById('valRechargeSum').innerHTML = totalYuan.toFixed(0) + '<span class="unit">元</span>';
+      document.getElementById('subRechargeSum').textContent = '共 ' + recharges.length + ' 次，约 ' + totalKWh.toFixed(0) + ' 度';
+    }
+
+    // 默认日期为今天
+    document.getElementById('rechargeDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('btnAddRecharge').onclick = function() {
+      const date = document.getElementById('rechargeDate').value;
+      const yuan = Number(document.getElementById('rechargeAmount').value);
+      if (!date || !yuan || yuan <= 0) {
+        alert('请填写有效的日期和金额');
+        return;
+      }
+      recharges.push({ time: date, yuan: yuan });
+      recharges.sort((a, b) => a.time.localeCompare(b.time));
+      saveRecharges(recharges);
+      renderRechargeList();
+      updateSummary();
+      document.getElementById('rechargeAmount').value = '';
+      // 自动隐藏导出框
+      document.getElementById('exportBox').style.display = 'none';
+    };
+
+    document.getElementById('btnExport').onclick = function() {
+      const exp = document.getElementById('exportBox');
+      exp.value = 'recharges=' + JSON.stringify(recharges, null, 2);
+      exp.style.display = 'block';
+      exp.select();
+      try {
+        document.execCommand('copy');
+        alert('JSON 已复制到剪贴板，请粘贴到 recharges.js 文件提交');
+      } catch (e) {}
+    };
+
+    renderRechargeList();
+
+    // --- 主图表 ---
     const times = dailyData.map(d => d.time);
     const kWhs = dailyData.map(d => d.kWh);
     const costs = dailyData.map(d => +(d.kWh * PRICE).toFixed(2));
+
+    // 充值标记线（用接近0的占位系列实现）
+    const rechargeMarks = recharges.map(r => {
+      const idx = times.findIndex(t => toDate(t) >= r.time);
+      return { xAxis: idx >= 0 ? idx : times.length - 1, label: { formatter: '充¥' + r.yuan, color: '#e65100' } };
+    });
 
     const chartMain = echarts.init(document.getElementById('chartMain'));
     chartMain.setOption({
@@ -221,10 +401,14 @@
           ])},
           itemStyle: { color: '#1a73e8' },
           markLine: {
-            silent: true,
-            data: [{ yAxis: WARN_THRESHOLD, lineStyle: { color: '#e53935', type: 'dashed' },
-              label: { formatter: '警告线 ' + WARN_THRESHOLD + 'kWh', color: '#e53935' }
-            }]
+            silent: false,
+            symbol: ['none', 'triangle'],
+            data: [
+              { yAxis: WARN_THRESHOLD, lineStyle: { color: '#e53935', type: 'dashed' },
+                label: { formatter: '警告线 ' + WARN_THRESHOLD + 'kWh', color: '#e53935' }
+              },
+              ...rechargeMarks
+            ]
           }
         },
         {
@@ -236,7 +420,7 @@
       ]
     });
 
-    // --- 每日用电量（按日期分组，近 30 天）---
+    // --- 每日用电量 ---
     const dailyUsageArr = [];
     for (let i = 1; i < dateEntries.length; i++) {
       const u = +(dateEntries[i - 1][1] - dateEntries[i][1]).toFixed(1);
@@ -266,7 +450,7 @@
       }]
     });
 
-    // --- 用电时段分析（计算每个时段的平均用电速率 kWh/h）---
+    // --- 用电时段分析 ---
     function parseDatetime(t) {
       return new Date(t.replace(' ', 'T') + (t.includes(':') ? '' : 'T00:00'));
     }
@@ -280,7 +464,7 @@
       if (u <= 0) continue;
       const hours = (parseDatetime(data[i].time) - parseDatetime(data[i - 1].time)) / 3600000;
       if (hours <= 0) continue;
-      const rate = u / hours; // kWh per hour
+      const rate = u / hours;
       let slot;
       if (h < 6) slot = 0;
       else if (h < 12) slot = 1;
@@ -340,7 +524,6 @@
       }]
     });
 
-    // 自适应
     window.addEventListener('resize', function() {
       chartMain.resize();
       chartDaily.resize();
