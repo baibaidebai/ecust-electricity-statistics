@@ -268,21 +268,30 @@
       return { ...d, usage };
     });
 
-    const dateMap = {};
-    for (const d of data) {
-      const dt = toDate(d.time);
-      if (!(dt in dateMap) || d.kWh < dateMap[dt]) dateMap[dt] = d.kWh;
+    // 按日历日聚合用电量：把每个正向相邻差值归到后一个读数所在日，自动跳过充值跳变
+    const dailyUsageMap = {};
+    for (let i = 1; i < data.length; i++) {
+      const drop = data[i - 1].kWh - data[i].kWh;
+      if (drop > 0) {
+        const day = data[i].time.split(' ')[0];
+        dailyUsageMap[day] = (dailyUsageMap[day] || 0) + drop;
+      }
     }
-    const dateEntries = Object.entries(dateMap).sort((a, b) => a[0].localeCompare(b[0]));
+    const dailyUsageArr = Object.entries(dailyUsageMap)
+      .map(([date, usage]) => ({ date, usage: +usage.toFixed(1) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     const last = dailyData[dailyData.length - 1];
     const remain = last.kWh;
     const cost = (remain * PRICE).toFixed(2);
 
-    let usage = 0;
-    if (dateEntries.length >= 2) {
-      usage = +(dateEntries[dateEntries.length - 2][1] - dateEntries[dateEntries.length - 1][1]).toFixed(1);
-    }
+    // 昨日用电：取昨日日历日的聚合值（自动跳过充值跳变）
+    const _y = new Date();
+    _y.setDate(_y.getDate() - 1);
+    const yStr = _y.getFullYear() + '-' +
+                 String(_y.getMonth() + 1).padStart(2, '0') + '-' +
+                 String(_y.getDate()).padStart(2, '0');
+    const usage = +(dailyUsageMap[yStr] || 0).toFixed(1);
 
     document.getElementById('updateTime').textContent = '最近更新：' + last.time;
     document.getElementById('valRemain').innerHTML = remain + '<span class="unit">kWh</span>';
@@ -304,17 +313,8 @@
       document.getElementById('subDaily').textContent = '';
     }
 
-    const recent7dates = dateEntries.slice(-8);
-    let avgDaily = 0;
-    let usageDayCount = 0;
-    for (let i = 1; i < recent7dates.length; i++) {
-      const delta = recent7dates[i - 1][1] - recent7dates[i][1];
-      if (delta > 0) {
-        avgDaily += delta;
-        usageDayCount++;
-      }
-    }
-    avgDaily = usageDayCount > 0 ? avgDaily / usageDayCount : 0;
+    const recent7 = dailyUsageArr.slice(-7);
+    const avgDaily = recent7.length > 0 ? recent7.reduce((s, d) => s + d.usage, 0) / recent7.length : 0;
     const daysLeft = avgDaily > 0 ? Math.floor(remain / avgDaily) : '∞';
     document.getElementById('valDays').innerHTML = daysLeft + '<span class="unit">天</span>';
     document.getElementById('subDays').textContent = '基于近 7 天均耗 ' + avgDaily.toFixed(1) + ' kWh/天';
@@ -457,11 +457,6 @@
     });
 
     // --- 每日用电量 ---
-    const dailyUsageArr = [];
-    for (let i = 1; i < dateEntries.length; i++) {
-      const u = +(dateEntries[i - 1][1] - dateEntries[i][1]).toFixed(1);
-      if (u > 0) dailyUsageArr.push({ date: dateEntries[i][0], usage: u });
-    }
     const recent30 = dailyUsageArr.slice(-30);
     const chartDaily = echarts.init(document.getElementById('chartDaily'));
     chartDaily.setOption({
@@ -535,10 +530,9 @@
 
     // --- 月度用电统计 ---
     const monthlyMap = {};
-    for (let i = 1; i < dateEntries.length; i++) {
-      const m = dateEntries[i][0].slice(0, 7);
-      const u = dateEntries[i - 1][1] - dateEntries[i][1];
-      if (u > 0) monthlyMap[m] = (monthlyMap[m] || 0) + u;
+    for (const { date, usage } of dailyUsageArr) {
+      const m = date.slice(0, 7);
+      monthlyMap[m] = (monthlyMap[m] || 0) + usage;
     }
     const monthLabels = Object.keys(monthlyMap).sort();
     const monthValues = monthLabels.map(m => +monthlyMap[m].toFixed(1));
