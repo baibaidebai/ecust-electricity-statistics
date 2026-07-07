@@ -250,13 +250,17 @@
     function toDate(t) {
       const parts = t.split(' ');
       if (!parts[1]) return parts[0];
-      const d = new Date(parts[0] + 'T00:00');
-      const h = parseInt(parts[1].split(':')[0]);
-      const m = parseInt(parts[1].split(':')[1]);
-      if (h < 5 || (h === 5 && m < 30)) {
-        d.setDate(d.getDate() - 1);
+      const [y, mo, d] = parts[0].split('-').map(Number);
+      const [h, mi] = parts[1].split(':').map(Number);
+      if (h < 5 || (h === 5 && mi < 30)) {
+        const prev = new Date(y, mo - 1, d);
+        prev.setDate(prev.getDate() - 1);
+        const yy = prev.getFullYear();
+        const mm = String(prev.getMonth() + 1).padStart(2, '0');
+        const dd = String(prev.getDate()).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
       }
-      return d.toISOString().slice(0, 10);
+      return parts[0];
     }
 
     const dailyData = data.map((d, i) => {
@@ -302,10 +306,15 @@
 
     const recent7dates = dateEntries.slice(-8);
     let avgDaily = 0;
+    let usageDayCount = 0;
     for (let i = 1; i < recent7dates.length; i++) {
-      avgDaily += recent7dates[i - 1][1] - recent7dates[i][1];
+      const delta = recent7dates[i - 1][1] - recent7dates[i][1];
+      if (delta > 0) {
+        avgDaily += delta;
+        usageDayCount++;
+      }
     }
-    avgDaily = avgDaily / (recent7dates.length - 1);
+    avgDaily = usageDayCount > 0 ? avgDaily / usageDayCount : 0;
     const daysLeft = avgDaily > 0 ? Math.floor(remain / avgDaily) : '∞';
     document.getElementById('valDays').innerHTML = daysLeft + '<span class="unit">天</span>';
     document.getElementById('subDays').textContent = '基于近 7 天均耗 ' + avgDaily.toFixed(1) + ' kWh/天';
