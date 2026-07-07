@@ -156,11 +156,6 @@
         <div class="value" id="valDays">--<span class="unit">天</span></div>
         <div class="sub" id="subDays"></div>
       </div>
-      <div class="card" id="cardRechargeSum">
-        <div class="label">累计充值</div>
-        <div class="value" id="valRechargeSum">0<span class="unit">元</span></div>
-        <div class="sub" id="subRechargeSum">充入约 0 kWh</div>
-      </div>
     </div>
 
     <div class="recharge-panel">
@@ -318,12 +313,6 @@
       document.getElementById('cardDays').classList.add('warn');
     }
 
-    // --- 充值统计卡片 ---
-    const totalYuan = recharges.reduce((s, r) => s + Number(r.yuan), 0);
-    const totalKWh = totalYuan / PRICE;
-    document.getElementById('valRechargeSum').innerHTML = totalYuan.toFixed(0) + '<span class="unit">元</span>';
-    document.getElementById('subRechargeSum').textContent = '共 ' + recharges.length + ' 次，约 ' + totalKWh.toFixed(0) + ' 度';
-
     // --- 充值列表 UI ---
     function renderRechargeList() {
       const list = document.getElementById('rechargeList');
@@ -346,10 +335,9 @@
     }
 
     function updateSummary() {
-      const totalYuan = recharges.reduce((s, r) => s + Number(r.yuan), 0);
-      const totalKWh = totalYuan / PRICE;
-      document.getElementById('valRechargeSum').innerHTML = totalYuan.toFixed(0) + '<span class="unit">元</span>';
-      document.getElementById('subRechargeSum').textContent = '共 ' + recharges.length + ' 次，约 ' + totalKWh.toFixed(0) + ' 度';
+      document.getElementById('rechargeToggleHint').textContent =
+        '（共 ' + recharges.length + ' 次，' +
+        recharges.reduce((s, r) => s + Number(r.yuan), 0).toFixed(0) + ' 元）点击展开';
     }
 
     // 默认日期为今天
