@@ -219,7 +219,7 @@
       let stored = [];
       try { stored = JSON.parse(localStorage.getItem(RECHARGE_STORAGE_KEY) || '[]'); } catch (e) {}
       // 文件中的数据作为初始数据（首次部署时已有记录）
-      const fromFile = (typeof recharges !== 'undefined' && Array.isArray(recharges)) ? recharges : [];
+      const fromFile = (typeof window.__recharges !== 'undefined' && Array.isArray(window.__recharges)) ? window.__recharges : [];
       // 合并：本地优先
       const seen = new Set();
       const merged = [];
@@ -237,6 +237,9 @@
     function saveRecharges(list) {
       localStorage.setItem(RECHARGE_STORAGE_KEY, JSON.stringify(list));
     }
+
+    // 把 recharges.js 里的全局变量挪到 window.__recharges，避免与下方 let 冲突
+    window.__recharges = (typeof window.recharges !== 'undefined' && Array.isArray(window.recharges)) ? window.recharges : [];
 
     let recharges = loadRecharges();
 
