@@ -263,6 +263,32 @@
       return parts[0];
     }
 
+    // 数据为空时（换宿舍/首次部署）显示提示而非崩溃
+    if (!Array.isArray(data) || data.length === 0) {
+      document.getElementById('updateTime').textContent = '等待首次数据采集…';
+      const cardUnits = { valRemain: 'kWh', valCost: '元', valDaily: 'kWh', valDays: '天' };
+      for (const [id, unit] of Object.entries(cardUnits)) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '--<span class="unit">' + unit + '</span>';
+      }
+      const subIds = ['subRemain', 'subDaily', 'subDays'];
+      subIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '尚未采集到数据';
+      });
+      // 渲染空图表，避免 echarts.init 报错
+      const emptyChart = (id) => echarts.init(document.getElementById(id)).setOption({
+        xAxis: { type: 'category', data: [] },
+        yAxis: { type: 'value' },
+        series: [],
+        title: { text: '暂无数据', left: 'center', top: 'middle', textStyle: { color: '#bbb', fontSize: 14 } }
+      });
+      emptyChart('chartMain');
+      emptyChart('chartDaily');
+      emptyChart('chartPeriod');
+      emptyChart('chartMonthly');
+    } else {
+
     const dailyData = data.map((d, i) => {
       const usage = i > 0 ? +(data[i - 1].kWh - d.kWh).toFixed(1) : 0;
       return { ...d, usage };
@@ -560,6 +586,8 @@
       chartPeriod.resize();
       chartMonthly.resize();
     });
+
+    }
   </script>
 </body>
 </html>
