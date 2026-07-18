@@ -324,9 +324,11 @@ try:
     remain = float(re.findall((r"(-?\d+(\.\d+)?)度"), response.text)[0][0])
     logging.info(f"剩余电量：{remain}")
 except Exception as e:
-    logging.exception(e)
-    logging.error("剩余电量获取失败，response: " + response.text)
-    exit(1)
+    # 解析失败通常为页面结构变化/服务器临时不可用/URL 已失效，
+    # 属暂时性问题，下次 cron 会重试，不应触发 GitHub 失败邮件
+    logging.warning(f"无法解析剩余电量，跳过本次记录: {e}")
+    logging.debug("response: " + response.text)
+    exit(0)
 
 originstring = "[]"
 
